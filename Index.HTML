@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Thermal Monitor</title>
+<style>
+  body{font-family:system-ui,Arial;max-width:760px;margin:2rem auto;padding:0 1rem;background:#0f1115;color:#e8e8e8;}
+  h1{font-size:1.4rem;}
+  .card{padding:1.25rem 1.5rem;margin:1rem 0;border-radius:14px;background:#1a1d24;border-left:6px solid #555;}
+  .ok{border-left-color:#00c896;}
+  .warn{border-left-color:#ffc107;}
+  .throttle{border-left-color:#ff8a00;}
+  .critical{border-left-color:#ff3b3b;}
+  .val{font-size:2rem;font-weight:700;margin:.25rem 0;}
+  .cores{font-size:.85rem;color:#aaa;margin-top:.5rem;line-height:1.6;}
+  .row{display:flex;gap:1rem;flex-wrap:wrap;}
+  .row .card{flex:1;min-width:220px;}
+  small{color:#888;}
+  #offline{display:none;background:#3a1f1f;border-left-color:#ff3b3b;padding:1rem;border-radius:10px;margin-bottom:1rem;}
+</style>
+</head>
+<body>
+  <h1>🌡️ System Thermal Monitor</h1>
+  <div id="offline">⚠️ Can't reach local agent at <code>http://127.0.0.1:5000</code>. Is <code>agent.py</code> running on this machine?</div>
+
+  <div class="row">
+    <div class="card" id="cpuCard">Loading CPU data…</div>
+    <div class="card" id="ramCard">Loading RAM data…</div>
+  </div>
+
+  <div class="card" id="forecastCard">Loading forecast…</div>
+  <div class="card" id="actionCard">Loading throttle status…</div>
+
+  <p><small>Last updated: <span id="time">–</span> · refresh every 2s</small></p>
+
+<script>
+const API = "http://127.0.0.1:5000/status";
+
+function levelClass(level){
+  return {normal:"ok", warn:"warn", throttle:"throttle", critical:"critical"}[level] || "";
+}
+
+async function update(){
+  try{
+    const res = await fetch(API, {cache:"no-store"});
+    const d = await res.json();
+    document.getElementById("offline").style.display = "none";
+
+    const cls = levelClass(d.throttle_state.level);
+
+    const cpuCard = document.getElementById("cpuCard");
+    cpuCard.className = "card " + cls;
+    if(!d.sensor_available){
+      cpuCard.innerHTML = `<h3>CPU</h3><div class="val">${d.cpu_percent ?? "–"}% load</div>
+        <div class="cores">No temperature sensor detected on this machine.<br>
+        Install LibreHardwareMonitor (run as Admin, enable Remote Web Server) for real temps.</div>`;
+    } else {
+      cpuCard.innerHTML = `<h3>CPU</h3><div class="val">${d.avg_temp ?? "–"}°C avg</div>
+        <div class="cores">Load: ${d.cpu_percent}% &nbsp;·&nbsp; Source: ${d.source}<br>
+        ${d.cores.map((c,i)=>`Core ${i}: ${c}°C`).join(" &nbsp;|&nbsp; ")}</div>`;
+    }
+
+    const ramCard = document.getElementById("ramCard");
+    ramCard.innerHTML = `<h3>RAM</h3><div class="val">${d.ram_percent ?? "–"}% used</div>
+      <div class="cores">${d.ram_temp ? d.ram_temp + "°C" : "Temp sensor not available"}</div>`;
+
+    const fCard = document.getElementById("forecastCard");
+    if(d.forecast){
+      fCard.innerHTML = `<h3>Forecast (${d.forecast.horizon_sec/60} min ahead)</h3>
+        <div class="val">${d.forecast.predicted_temp}°C predicted</div>
+        <small>Trend: ${d.forecast.slope_per_sec > 0 ? "rising" : "falling/stable"}
+        (${d.forecast.slope_per_sec}°C/sec)</small>`;
+    } else {
+      fCard.innerHTML = `<h3>Forecast</h3><small>Gathering history…</small>`;
+    }
+
+    const aCard = document.getElementById("actionCard");
+    aCard.className = "card " + cls;
+    aCard.innerHTML = `<h3>Status: ${d.throttle_state.level.toUpperCase()}</h3>
+      <small>Last action: ${d.throttle_state.last_action ?? "none"}<br>
+      Thresholds — warn ${d.thresholds.warn}°C · throttle ${d.thresholds.throttle}°C · critical ${d.thresholds.critical}°C</small>`;
+
+    document.getElementById("time").textContent = new Date().toLocaleTimeString();
+  }catch(e){
+    document.getElementById("offline").style.display = "block";
+  }
+}
+update();
+setInterval(update, 2000);
+</script>
+</body>
+</html>
